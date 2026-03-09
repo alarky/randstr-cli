@@ -10,7 +10,7 @@ PLATFORMS := \
 	windows/amd64 \
 	windows/arm64
 
-.PHONY: build clean test cross-build
+.PHONY: build clean test cross-build release
 
 build:
 	go build -o $(NAME)
@@ -28,6 +28,10 @@ cross-build: clean
 		echo "Building $(OUT)" && \
 		GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "-s -w" -o $(OUT) . && \
 	) true
+
+release: cross-build
+	@if [ "$(VERSION)" = "dev" ]; then echo "Error: tag not found. Run 'git tag vX.Y.Z' first." && exit 1; fi
+	gh release create $(VERSION) $(DIST)/* --title "$(VERSION)" --generate-notes
 
 clean:
 	rm -rf $(DIST)
