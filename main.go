@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 )
 
 const (
-	lowerChars  = "abcdefghijklmnopqrstuvwxyz"
-	upperChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	digitChars  = "0123456789"
-	symbolChars = "!@#$%^&*()-_=+[]{}|;:,.<>?"
+	lowerChars = "abcdefghijklmnopqrstuvwxyz"
+	upperChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digitChars = "0123456789"
+	allSymbols = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 )
 
 func main() {
@@ -23,58 +24,95 @@ func main() {
 }
 
 func run() error {
-	n := flag.Int("n", 16, "length of password")
-	l := flag.Bool("l", false, "include lowercase letters")
-	u := flag.Bool("u", false, "include uppercase letters")
-	d := flag.Bool("d", false, "include digits")
-	s := flag.Bool("s", false, "include symbols")
+	c := flag.Int("c", 12, "number of strings to generate")
+	n := flag.Int("n", 16, "length of each string")
+	a := flag.Bool("a", false, "include lowercase letters (a-z)")
+	A := flag.Bool("A", false, "include uppercase letters (A-Z)")
+	zero := flag.Bool("0", false, "include digits (0-9)")
+	s := flag.Bool("s", false, "include all symbols")
+	symbols := flag.String("symbols", "", "include specific symbols (e.g. '!@#$')")
+	symbolMax := flag.Int("symbol-max", 20, "max percentage of symbols in output")
 	flag.Parse()
 
+	if *c <= 0 {
+		return fmt.Errorf("count must be positive")
+	}
 	if *n <= 0 {
 		return fmt.Errorf("length must be positive")
 	}
 
-	charset := buildCharset(*l, *u, *d, *s)
+	alphaPool, symbolPool := buildPools(*a, *A, *zero, *s, *symbols)
 
-	password, err := generate(charset, *n)
-	if err != nil {
-		return err
+	for i := 0; i < *c; i++ {
+		result, err := generate(alphaPool, symbolPool, *n, *symbolMax)
+		if err != nil {
+			return err
+		}
+		fmt.Println(result)
 	}
-
-	fmt.Println(password)
 	return nil
 }
 
-func buildCharset(l, u, d, s bool) string {
-	// フラグ未指定なら全部入り
-	if !l && !u && !d && !s {
-		return lowerChars + upperChars + digitChars + symbolChars
+func buildPools(l, u, d, s bool, symbols string) (string, string) {
+	noCharFlags := !l && !u && !d && !s && symbols == ""
+
+	var alphaPool string
+	if l || noCharFlags {
+		alphaPool += lowerChars
+	}
+	if u || noCharFlags {
+		alphaPool += upperChars
+	}
+	if d || noCharFlags {
+		alphaPool += digitChars
 	}
 
-	var charset string
-	if l {
-		charset += lowerChars
-	}
-	if u {
-		charset += upperChars
-	}
-	if d {
-		charset += digitChars
-	}
+	var symbolPool string
 	if s {
-		charset += symbolChars
+		symbolPool = allSymbols
+	} else if symbols != "" {
+		seen := make(map[byte]bool)
+		for i := 0; i < len(symbols); i++ {
+			ch := symbols[i]
+			if strings.IndexByte(allSymbols, ch) != -1 && !seen[ch] {
+				symbolPool += string(ch)
+				seen[ch] = true
+			}
+		}
 	}
-	return charset
+
+	return alphaPool, symbolPool
 }
 
-func generate(charset string, length int) (string, error) {
+func generate(alphaPool, symbolPool string, length int, symbolMaxPct int) (string, error) {
+	if alphaPool == "" && symbolPool == "" {
+		return "", nil
+	}
+
+	maxSymbols := length
+	if alphaPool != "" && symbolPool != "" {
+		maxSymbols = length * symbolMaxPct / 100
+	}
+
+	fullPool := alphaPool + symbolPool
 	result := make([]byte, length)
+	symbolCount := 0
+
 	for i := range result {
-		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		pool := fullPool
+		if symbolCount >= maxSymbols && alphaPool != "" {
+			pool = alphaPool
+		}
+
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(pool))))
 		if err != nil {
 			return "", fmt.Errorf("failed to generate random number: %w", err)
 		}
-		result[i] = charset[idx.Int64()]
+		ch := pool[idx.Int64()]
+		result[i] = ch
+		if strings.IndexByte(symbolPool, ch) != -1 {
+			symbolCount++
+		}
 	}
 	return string(result), nil
 }
